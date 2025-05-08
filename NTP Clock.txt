@@ -1,0 +1,157 @@
+#include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <TFT_eSPI.h>
+
+// Thông tin mạng Wi-Fi của bạn
+#define SSID_WI_FI_CUA_BAN "TEN_WIFI_CUA_BAN"
+#define PASSWORD_WI_FI_CUA_BAN "PASSWORD_WIFI_CUA_BAN"
+
+// Cấu hình NTP
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 7 * 3600; // Múi giờ Việt Nam (GMT+7)
+const int daylightOffset_sec = 0;    // Không dùng giờ tiết kiệm ánh sáng ban ngày
+
+// Khởi tạo đối tượng UDP để NTPClient sử dụng
+WiFiUDP ntpUDP;
+
+// Khởi tạo đối tượng NTPClient
+NTPClient timeClient(ntpUDP, ntpServer, gmtOffset_sec, daylightOffset_sec);
+
+// Khởi tạo đối tượng TFT_eSPI
+TFT_eSPI tft = TFT_eSPI();
+
+// Kích thước màn hình 1.69 inch phổ biến là 240x280
+#define SCREEN_WIDTH  240
+#define SCREEN_HEIGHT 280
+
+// Tâm đồng hồ
+int centerX = SCREEN_WIDTH / 2;
+int centerY = SCREEN_HEIGHT / 2;
+
+// Bán kính mặt đồng hồ (điều chỉnh cho phù hợp với kích thước màn hình)
+int clockRadius = (min(SCREEN_WIDTH, SCREEN_HEIGHT) / 2) - 10;
+
+// Màu sắc
+#define TFT_DARKGREY 0x7BEF
+#define TFT_BLUEISH  0x2C7D
+
+// Biến lưu trữ vị trí kim cũ để xóa
+int oldHourX, oldHourY;
+int oldMinuteX, oldMinuteY;
+int oldSecondX, oldSecondY;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Khoi dong...");
+
+  // Khởi tạo màn hình TFT
+  tft.init();
+  tft.setRotation(0); // Điều chỉnh hướng hiển thị nếu cần
+
+  // Kết nối Wi-Fi
+  Serial.print("Ket noi den ");
+  Serial.println(SSID_WI_FI_CUA_BAN);
+  WiFi.begin(SSID_WI_FI_CUA_BAN, PASSWORD_WI_FI_CUA_BAN);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("Da ket noi WiFi");
+
+  // Khởi tạo NTPClient
+  timeClient.begin();
+
+  // Vẽ mặt đồng hồ ban đầu
+  drawClockFace();
+}
+
+void loop() {
+  // Cập nhật thời gian từ NTP
+  timeClient.update();
+
+  // Lấy giờ, phút, giây
+  int hours = timeClient.getHours();
+  int minutes = timeClient.getMinutes();
+  int seconds = timeClient.getSeconds();
+
+  // Chuyển giờ định dạng 24h sang 12h
+  if (hours > 12) {
+    hours -= 12;
+  }
+  if (hours == 0) {
+    hours = 12;
+  }
+
+  // Tính toán góc quay của kim
+  float secondAngle = map(seconds, 0, 60, 0, 360);
+  float minuteAngle = map(minutes, 0, 60, 0, 360) + (float)seconds / 60.0 * 6; // Kim phút nhích theo giây
+  float hourAngle = map(hours, 0, 12, 0, 360) + (float)minutes / 60.0 * 30;    // Kim giờ nhích theo phút
+
+  // Độ dài kim
+  int secondHandLength = clockRadius - 5;
+  int minuteHandLength = clockRadius - 15;
+  int hourHandLength = clockRadius - 30;
+
+  // Tính toán vị trí đầu kim mới
+  int newSecondX = centerX + secondHandLength * cos((secondAngle - 90) * DEG_TO_RAD);
+  int newSecondY = centerY + secondHandLength * sin((secondAngle - 90) * DEG_TO_RAD);
+  int newMinuteX = centerX + minuteHandLength * cos((minuteAngle - 90) * DEG_TO_RAD);
+  int newMinuteY = centerY + minuteHandLength * sin((minuteAngle - 90) * DEG_TO_RAD);
+  int newHourX = centerX + hourHandLength * cos((hourAngle - 90) * DEG_TO_RAD);
+  int newHourY = centerY + hourHandLength * sin((hourAngle - 90) * DEG_TO_RAD);
+
+  // Xóa kim cũ bằng cách vẽ lại bằng màu nền
+  tft.drawLine(centerX, centerY, oldSecondX, oldSecondY, TFT_DARKGREY);
+  tft.drawLine(centerX, centerY, oldMinuteX, oldMinuteY, TFT_DARKGREY);
+  tft.drawLine(centerX, centerY, oldHourX, oldHourY, TFT_DARKGREY);
+
+  // Vẽ kim mới
+  tft.drawLine(centerX, centerY, newSecondX, newSecondY, TFT_RED);
+  tft.drawLine(centerX, centerY, newMinuteX, newMinuteY, TFT_BLUEISH);
+  tft.drawLine(centerX, centerY, newHourX, newHourY, TFT_BLUEISH);
+
+  // Lưu vị trí kim hiện tại để lần sau xóa
+  oldSecondX = newSecondX;
+  oldSecondY = newSecondY;
+  oldMinuteX = newMinuteX;
+  oldMinuteY = newMinuteY;
+  oldHourX = newHourX;
+  oldHourY = newHourY;
+
+  // Vẽ chấm tròn ở tâm
+  tft.fillCircle(centerX, centerY, 4, TFT_WHITE);
+
+  // Chờ 1 giây trước khi cập nhật lại
+  delay(1000);
+}
+
+void drawClockFace() {
+  tft.fillScreen(TFT_DARKGREY); // Màu nền
+
+  // Vẽ vòng tròn mặt đồng hồ
+  tft.drawCircle(centerX, centerY, clockRadius, TFT_WHITE);
+
+  // Vẽ các vạch chia giờ (mỗi 30 độ)
+  for (int i = 0; i < 12; i++) {
+    float angle = i * 30;
+    int x1 = centerX + (clockRadius - 5) * cos((angle - 90) * DEG_TO_RAD);
+    int y1 = centerY + (clockRadius - 5) * sin((angle - 90) * DEG_TO_RAD);
+    int x2 = centerX + (clockRadius - 10) * cos((angle - 90) * DEG_TO_RAD);
+    int y2 = centerY + (clockRadius - 10) * sin((angle - 90) * DEG_TO_RAD);
+    tft.drawLine(x1, y1, x2, y2, TFT_WHITE);
+  }
+
+  // Vẽ các vạch chia phút/giây (mỗi 6 độ)
+  for (int i = 0; i < 60; i++) {
+    if (i % 5 != 0) { // Bỏ qua các vạch giờ đã vẽ
+      float angle = i * 6;
+      int x1 = centerX + (clockRadius - 5) * cos((angle - 90) * DEG_TO_RAD);
+      int y1 = centerY + (clockRadius - 5) * sin((angle - 90) * DEG_TO_RAD);
+      int x2 = centerX + (clockRadius - 7) * cos((angle - 90) * DEG_TO_RAD);
+      int y2 = centerY + (clockRadius - 7) * sin((angle - 90) * DEG_TO_RAD);
+      tft.drawLine(x1, y1, x2, y2, TFT_WHITE);
+    }
+  }
+}
