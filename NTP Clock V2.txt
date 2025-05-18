@@ -1,0 +1,134 @@
+#include <SPI.h>
+#include <TFT_eSPI.h> 
+#include <WiFi.h>       
+#include <WiFiUDP.h>    
+#include <NTPClient.h>  
+
+#define TFT_GREY 0x0000
+
+const char* ssid = "your-network";        
+const char* password = "enter-pass"; 
+
+const char* ntpServer = "pool.ntp.org"; 
+const long  utcOffsetInSeconds = 7 * 3600; 
+const int   ntpUpdateInterval = 3600000; 
+
+TFT_eSPI tft = TFT_eSPI();       
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, ntpServer, utcOffsetInSeconds, ntpUpdateInterval);
+
+float sx = 0, sy = 1, mx = 1, my = 0, hx = -1, hy = 0; 
+float sdeg=0, mdeg=0, hdeg=0;
+uint16_t osx=120, osy=120; 
+uint16_t omx=120, omy=120; 
+uint16_t ohx=120, ohy=120; 
+uint16_t x0=0, x1=0, yy0=0, yy1=0; 
+
+uint8_t hh=0, mm=0, ss=0;
+
+uint32_t targetTime = 0; 
+
+void setup(void) {
+  Serial.begin(115200);
+  tft.init();
+  tft.setRotation(0); 
+
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected.");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  timeClient.begin();
+  timeClient.forceUpdate();
+
+  hh = timeClient.getHours();
+  mm = timeClient.getMinutes();
+  ss = timeClient.getSeconds();
+
+  Serial.print("Initial Time: ");
+  Serial.print(hh);
+  Serial.print(":");
+  Serial.print(mm);
+  Serial.print(":");
+  Serial.println(ss);
+
+  tft.fillScreen(TFT_GREY);
+
+  tft.fillCircle(120, 120, 118, TFT_GREEN); 
+  tft.fillCircle(120, 120, 110, TFT_BLACK); 
+
+  for(int i = 0; i < 360; i += 30) {
+    sx = cos((i - 90) * 0.0174532925); 
+    sy = sin((i - 90) * 0.0174532925);
+    x0 = sx * 114 + 120; 
+    yy0 = sy * 114 + 120;
+    x1 = sx * 100 + 120; 
+    yy1 = sy * 100 + 120;
+    tft.drawLine(x0, yy0, x1, yy1, TFT_GREEN);
+  }
+
+  for(int i = 0; i < 360; i += 6) {
+    sx = cos((i - 90) * 0.0174532925);
+    sy = sin((i - 90) * 0.0174532925);
+    x0 = sx * 102 + 120;
+    yy0 = sy * 102 + 120;
+
+    tft.drawPixel(x0, yy0, TFT_WHITE);
+
+    if(i % 90 == 0) { 
+      tft.fillCircle(x0, yy0, 2, TFT_WHITE);
+    }
+  }
+
+  tft.fillCircle(120, 120, 3, TFT_RED); 
+  tft.drawCentreString("NTP Wi-Fi Clock", 120, 260, 4); 
+
+  targetTime = millis() + 1000;
+}
+
+void loop() {
+  if (targetTime < millis()) {
+    targetTime += 1000; 
+
+    timeClient.update();
+
+    ss = timeClient.getSeconds();
+    mm = timeClient.getMinutes();
+    hh = timeClient.getHours();
+
+    sdeg = ss * 6;                  
+    mdeg = mm * 6 + sdeg * 0.01666667;  
+    hdeg = hh * 30 + mdeg * 0.0833333;  
+
+    float csx = cos((sdeg - 90) * 0.0174532925) * 90 + 120; 
+    float csy = sin((sdeg - 90) * 0.0174532925) * 90 + 120;
+    float cmx = cos((mdeg - 90) * 0.0174532925) * 84 + 120; 
+    float cmy = sin((mdeg - 90) * 0.0174532925) * 84 + 120;
+    float chx = cos((hdeg - 90) * 0.0174532925) * 62 + 120;
+    float chy = sin((hdeg - 90) * 0.0174532925) * 62 + 120;
+
+    tft.drawLine(osx, osy, 120, 120, TFT_BLACK);
+    tft.drawLine(omx, omy, 120, 120, TFT_BLACK); 
+    tft.drawLine(ohx, ohy, 120, 120, TFT_BLACK); 
+
+    osx = csx; osy = csy;
+    omx = cmx; omy = cmy;
+    ohx = chx; ohy = chy;
+
+    tft.drawLine(osx, osy, 120, 120, TFT_RED);   
+    tft.drawLine(omx, omy, 120, 120, TFT_WHITE); 
+    tft.drawLine(ohx, ohy, 120, 120, TFT_WHITE); 
+
+    tft.fillCircle(120, 120, 3, TFT_RED); 
+  }
+}
